@@ -63,8 +63,8 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Call the Railway browser service
-    const railwayResponse = await fetch('https://zealyscrapping.railway.internal/scrape', {
+    // Call the Railway browser service using the correct public URL
+    const railwayResponse = await fetch('https://zealyscrapping.railway.app/scrape', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -73,7 +73,9 @@ export const handler: Handler = async (event) => {
     });
 
     if (!railwayResponse.ok) {
-      throw new Error(`Railway service error: ${railwayResponse.status}`);
+      const errorText = await railwayResponse.text();
+      console.error(`Railway service error: ${railwayResponse.status} - ${errorText}`);
+      throw new Error(`Railway service error: ${railwayResponse.status} - ${errorText}`);
     }
 
     const railwayData = await railwayResponse.json();
