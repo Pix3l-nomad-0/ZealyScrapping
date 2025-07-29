@@ -8,7 +8,7 @@ Your **Zealy Socials Scraper** is ready to deploy! Here are all the deployment o
 1. Go to [netlify.com](https://netlify.com)
 2. Click **"New site from Git"**
 3. Choose **GitHub** and authorize access
-4. Select repository: **`TernoaSupport/ZealyScrapping`**
+4. Select repository: **`Pix3l-nomad-0/ZealyScrapping`**
 5. Configure build settings:
    - **Build command**: `npm run build`
    - **Publish directory**: `dist`
@@ -45,7 +45,7 @@ Then drag the `deployment/` folder to Netlify.
 
 ## 📋 **Repository Information**
 
-- **GitHub**: https://github.com/TernoaSupport/ZealyScrapping
+- **GitHub**: https://github.com/Pix3l-nomad-0/ZealyScrapping
 - **Build Command**: `npm run build`
 - **Publish Directory**: `dist`
 - **Functions Directory**: `netlify/functions`

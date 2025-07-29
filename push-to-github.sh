@@ -11,7 +11,7 @@ fi
 # Check if remote is set
 if ! git remote get-url origin > /dev/null 2>&1; then
     echo "📝 Please set your GitHub repository URL:"
-    echo "   git remote add origin https://github.com/YOUR_USERNAME/zealy-socials-scraper.git"
+    echo "   git remote add origin https://github.com/Pix3l-nomad-0/ZealyScrapping.git"
     echo ""
     echo "Replace YOUR_USERNAME with your actual GitHub username"
     exit 1
@@ -34,7 +34,7 @@ echo ""
 echo "🎯 Next steps:"
 echo "1. Go to https://netlify.com"
 echo "2. Click 'New site from Git'"
-echo "3. Choose your repository"
+echo "3. Choose your repository: https://github.com/Pix3l-nomad-0/ZealyScrapping"
 echo "4. Set build command: npm run build"
 echo "5. Set publish directory: dist"
 echo "6. Deploy!"

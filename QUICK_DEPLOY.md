@@ -11,7 +11,7 @@ Your Zealy Socials Scraper is ready to deploy! Here are the easiest ways to get 
 
 ### Step 2: Push to GitHub
 ```bash
-git remote add origin https://github.com/TernoaSupport/ZealyScrapping.git
+git remote add origin https://github.com/Pix3l-nomad-0/ZealyScrapping.git
 git branch -M main
 git push -u origin main
 ```
@@ -19,7 +19,7 @@ git push -u origin main
 ### Step 3: Deploy on Netlify
 1. Go to [netlify.com](https://netlify.com)
 2. Click "New site from Git"
-3. Choose GitHub and select your repository
+3. Choose GitHub and select your repository: **`Pix3l-nomad-0/ZealyScrapping`**
 4. Configure the build settings:
    - **Build command**: `npm run build`
    - **Publish directory**: `dist`

@@ -76,7 +76,7 @@ The app will be available at `http://localhost:3000` and the Netlify dev server 
 
 ## 🚀 Quick Deploy
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/TernoaSupport/ZealyScrapping)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/Pix3l-nomad-0/ZealyScrapping)
 
 **One-click deploy to Netlify!** Just click the button above and follow the setup.
 
