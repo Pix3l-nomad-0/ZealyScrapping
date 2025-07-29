@@ -1,11 +1,5 @@
 import type { Handler } from '@netlify/functions';
 
-const SOCIAL_MAP = {
-  discord: /discord\.(gg|com)/i,
-  twitter: /(x\.com|twitter\.com)/i,
-  telegram: /(t\.me|telegram\.)/i,
-};
-
 interface SocialRow {
   slug: string;
   website: string;
@@ -21,174 +15,6 @@ interface ScrapeRequest {
 
 interface ScrapeResponse {
   rows: SocialRow[];
-}
-
-function slugFrom(line: string): string {
-  line = line.trim();
-  if (!line) return "";
-  if (line.startsWith("http")) {
-    // expected forms: https://zealy.io/cw/<slug>/...
-    const url = new URL(line);
-    const parts = url.pathname.split("/").filter(p => p);
-    return parts.length >= 2 && parts[0] === "cw" ? parts[1] : "";
-  }
-  return line; // assume it's already a slug
-}
-
-async function grabLinks(slug: string): Promise<SocialRow> {
-  const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
-  
-  try {
-    // Try to fetch the page and look for pre-rendered data or alternative sources
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const html = await response.text();
-    
-    // Look for JSON data embedded in the page that might contain the social links
-    const jsonDataPattern = /<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi;
-    const jsonMatches = html.match(jsonDataPattern);
-    
-    let links: string[] = [];
-    
-    // Try to extract links from JSON data first
-    if (jsonMatches) {
-      for (const match of jsonMatches) {
-        try {
-          const jsonContent = match.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
-          const data = JSON.parse(jsonContent);
-          // Look for social links in the JSON data
-          const socialLinks = extractLinksFromObject(data);
-          links = links.concat(socialLinks);
-        } catch (e) {
-          // Ignore JSON parsing errors
-        }
-      }
-    }
-    
-    // If no links found in JSON, try to extract from HTML
-    if (links.length === 0) {
-      // Look for links in the HTML that might be from the modal
-      const linkPatterns = [
-        /href=["'](https?:\/\/[^"']+)["']/gi,
-        /href=["'](https?:\/\/[^"']+)["']/gi,
-      ];
-
-      for (const pattern of linkPatterns) {
-        let match;
-        while ((match = pattern.exec(html)) !== null) {
-          const link = match[1];
-          if (link && !link.toLowerCase().includes('zealy.io') && !links.includes(link)) {
-            links.push(link);
-          }
-        }
-      }
-
-      // Also look for social media patterns in the text
-      const socialPatterns = [
-        /(https?:\/\/discord\.(?:gg|com)\/[^\s"']+)/gi,
-        /(https?:\/\/(?:x\.com|twitter\.com)\/[^\s"']+)/gi,
-        /(https?:\/\/t\.me\/[^\s"']+)/gi,
-        /(https?:\/\/telegram\.me\/[^\s"']+)/gi,
-      ];
-
-      for (const pattern of socialPatterns) {
-        let match;
-        while ((match = pattern.exec(html)) !== null) {
-          const link = match[1];
-          if (link && !links.includes(link)) {
-            links.push(link);
-          }
-        }
-      }
-    }
-    
-    // Deduplicate keeping first occurrences (like Python code)
-    const seen = new Set();
-    const uniqueLinks: string[] = [];
-    for (const link of links) {
-      if (!seen.has(link)) {
-        uniqueLinks.push(link);
-        seen.add(link);
-      }
-    }
-
-    // Classify links exactly like the Python code
-    const result: SocialRow = {
-      slug,
-      website: '',
-      discord: '',
-      twitter: '',
-      telegram: ''
-    };
-
-    for (const link of uniqueLinks) {
-      const lower = link.toLowerCase();
-      let matched = false;
-      
-      for (const [key, regex] of Object.entries(SOCIAL_MAP)) {
-        if (regex.test(lower)) {
-          if (!result[key as keyof SocialRow]) {
-            result[key as keyof SocialRow] = link;
-          }
-          matched = true;
-          break;
-        }
-      }
-      
-      if (!matched && !result.website) {
-        // treat as website if it isn't a known social
-        result.website = link;
-      }
-    }
-
-    return result;
-  } catch (error) {
-    console.error(`Error scraping ${slug}:`, error);
-    return {
-      slug,
-      website: '',
-      discord: '',
-      twitter: '',
-      telegram: '',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-}
-
-function extractLinksFromObject(obj: any): string[] {
-  const links: string[] = [];
-  
-  if (typeof obj === 'string') {
-    // Check if the string is a URL
-    if (obj.startsWith('http') && !obj.toLowerCase().includes('zealy.io')) {
-      links.push(obj);
-    }
-  } else if (typeof obj === 'object' && obj !== null) {
-    if (Array.isArray(obj)) {
-      for (const item of obj) {
-        links.push(...extractLinksFromObject(item));
-      }
-    } else {
-      for (const key in obj) {
-        links.push(...extractLinksFromObject(obj[key]));
-      }
-    }
-  }
-  
-  return links;
 }
 
 export const handler: Handler = async (event) => {
@@ -237,23 +63,25 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const rows: SocialRow[] = [];
-    
-    // Process each slug with a small delay to be respectful
-    for (const slug of slugs) {
-      const row = await grabLinks(slug);
-      rows.push(row);
-      
-      // Add a small delay between requests
-      if (slugs.indexOf(slug) < slugs.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    // Call the Railway browser service
+    const railwayResponse = await fetch('https://zealyscrapping.railway.internal/scrape', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ slugs }),
+    });
+
+    if (!railwayResponse.ok) {
+      throw new Error(`Railway service error: ${railwayResponse.status}`);
     }
 
+    const railwayData = await railwayResponse.json();
+    
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ rows } as ScrapeResponse),
+      body: JSON.stringify(railwayData),
     };
   } catch (error) {
     console.error('Scraping error:', error);
