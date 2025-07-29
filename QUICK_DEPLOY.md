@@ -11,7 +11,7 @@ Your Zealy Socials Scraper is ready to deploy! Here are the easiest ways to get 
 
 ### Step 2: Push to GitHub
 ```bash
-git remote add origin https://github.com/YOUR_USERNAME/zealy-socials-scraper.git
+git remote add origin https://github.com/TernoaSupport/ZealyScrapping.git
 git branch -M main
 git push -u origin main
 ```
