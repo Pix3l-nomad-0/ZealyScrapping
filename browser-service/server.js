@@ -9,6 +9,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Add request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
 // Social media regex patterns (exactly like Python code)
 const SOCIAL_MAP = {
   discord: /discord\.(gg|com)/i,
@@ -34,6 +40,7 @@ async function grabLinks(page, slug) {
   const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
   
   try {
+    console.log(`Processing slug: ${slug}`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     
     // Wait for modal (dialog) to appear
@@ -87,8 +94,10 @@ async function grabLinks(page, slug) {
       }
     }
 
+    console.log(`Found ${links.length} links for ${slug}`);
     return result;
   } catch (error) {
+    console.error(`Error processing ${slug}:`, error.message);
     return {
       slug,
       website: '',
@@ -102,21 +111,27 @@ async function grabLinks(page, slug) {
 
 // Main scraping endpoint
 app.post('/scrape', async (req, res) => {
+  console.log('Received scrape request:', req.body);
+  
   try {
     const { slugs } = req.body;
 
     if (!slugs || !Array.isArray(slugs) || slugs.length === 0) {
+      console.log('Invalid request: no slugs provided');
       return res.status(400).json({ error: 'Invalid request: slugs array is required' });
     }
 
     // Limit the number of slugs to prevent abuse
     if (slugs.length > 50) {
+      console.log('Too many slugs requested:', slugs.length);
       return res.status(400).json({ error: 'Too many slugs. Maximum 50 allowed.' });
     }
 
+    console.log(`Starting to process ${slugs.length} slugs`);
     const rows = [];
     
     // Launch browser
+    console.log('Launching browser...');
     const browser = await chromium.launch({ 
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -137,8 +152,10 @@ app.post('/scrape', async (req, res) => {
       }
     } finally {
       await browser.close();
+      console.log('Browser closed');
     }
 
+    console.log(`Completed processing ${rows.length} slugs`);
     res.json({ rows });
   } catch (error) {
     console.error('Scraping error:', error);
@@ -151,10 +168,27 @@ app.post('/scrape', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('Health check requested');
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint for testing
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Zealy Browser Service is running',
+    endpoints: {
+      health: '/health',
+      scrape: '/scrape (POST)'
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Browser service running on port ${PORT}`);
+  console.log(`🚀 Browser service running on port ${PORT}`);
+  console.log(`📡 Available endpoints:`);
+  console.log(`   GET  / - Service info`);
+  console.log(`   GET  /health - Health check`);
+  console.log(`   POST /scrape - Scrape social links`);
 }); 
