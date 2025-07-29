@@ -23,11 +23,23 @@ interface ScrapeResponse {
   rows: SocialRow[];
 }
 
+function slugFrom(line: string): string {
+  line = line.trim();
+  if (!line) return "";
+  if (line.startsWith("http")) {
+    // expected forms: https://zealy.io/cw/<slug>/...
+    const url = new URL(line);
+    const parts = url.pathname.split("/").filter(p => p);
+    return parts.length >= 2 && parts[0] === "cw" ? parts[1] : "";
+  }
+  return line; // assume it's already a slug
+}
+
 async function grabLinks(slug: string): Promise<SocialRow> {
   const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
   
   try {
-    // Fetch the page HTML
+    // Try to fetch the page and look for pre-rendered data or alternative sources
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -45,44 +57,75 @@ async function grabLinks(slug: string): Promise<SocialRow> {
 
     const html = await response.text();
     
-    // Extract links using regex patterns
-    const linkPatterns = [
-      /href=["'](https?:\/\/[^"']+)["']/gi,
-      /href=["'](https?:\/\/[^"']+)["']/gi,
-    ];
-
-    const links: string[] = [];
+    // Look for JSON data embedded in the page that might contain the social links
+    const jsonDataPattern = /<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi;
+    const jsonMatches = html.match(jsonDataPattern);
     
-    // Find all external links
-    for (const pattern of linkPatterns) {
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
-        const link = match[1];
-        if (link && !link.toLowerCase().includes('zealy.io') && !links.includes(link)) {
-          links.push(link);
+    let links: string[] = [];
+    
+    // Try to extract links from JSON data first
+    if (jsonMatches) {
+      for (const match of jsonMatches) {
+        try {
+          const jsonContent = match.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
+          const data = JSON.parse(jsonContent);
+          // Look for social links in the JSON data
+          const socialLinks = extractLinksFromObject(data);
+          links = links.concat(socialLinks);
+        } catch (e) {
+          // Ignore JSON parsing errors
         }
       }
     }
+    
+    // If no links found in JSON, try to extract from HTML
+    if (links.length === 0) {
+      // Look for links in the HTML that might be from the modal
+      const linkPatterns = [
+        /href=["'](https?:\/\/[^"']+)["']/gi,
+        /href=["'](https?:\/\/[^"']+)["']/gi,
+      ];
 
-    // Also look for social media patterns in the text
-    const socialPatterns = [
-      /(https?:\/\/discord\.(?:gg|com)\/[^\s"']+)/gi,
-      /(https?:\/\/(?:x\.com|twitter\.com)\/[^\s"']+)/gi,
-      /(https?:\/\/t\.me\/[^\s"']+)/gi,
-      /(https?:\/\/telegram\.me\/[^\s"']+)/gi,
-    ];
+      for (const pattern of linkPatterns) {
+        let match;
+        while ((match = pattern.exec(html)) !== null) {
+          const link = match[1];
+          if (link && !link.toLowerCase().includes('zealy.io') && !links.includes(link)) {
+            links.push(link);
+          }
+        }
+      }
 
-    for (const pattern of socialPatterns) {
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
-        const link = match[1];
-        if (link && !links.includes(link)) {
-          links.push(link);
+      // Also look for social media patterns in the text
+      const socialPatterns = [
+        /(https?:\/\/discord\.(?:gg|com)\/[^\s"']+)/gi,
+        /(https?:\/\/(?:x\.com|twitter\.com)\/[^\s"']+)/gi,
+        /(https?:\/\/t\.me\/[^\s"']+)/gi,
+        /(https?:\/\/telegram\.me\/[^\s"']+)/gi,
+      ];
+
+      for (const pattern of socialPatterns) {
+        let match;
+        while ((match = pattern.exec(html)) !== null) {
+          const link = match[1];
+          if (link && !links.includes(link)) {
+            links.push(link);
+          }
         }
       }
     }
+    
+    // Deduplicate keeping first occurrences (like Python code)
+    const seen = new Set();
+    const uniqueLinks: string[] = [];
+    for (const link of links) {
+      if (!seen.has(link)) {
+        uniqueLinks.push(link);
+        seen.add(link);
+      }
+    }
 
-    // Classify links
+    // Classify links exactly like the Python code
     const result: SocialRow = {
       slug,
       website: '',
@@ -91,7 +134,7 @@ async function grabLinks(slug: string): Promise<SocialRow> {
       telegram: ''
     };
 
-    for (const link of links) {
+    for (const link of uniqueLinks) {
       const lower = link.toLowerCase();
       let matched = false;
       
@@ -123,6 +166,29 @@ async function grabLinks(slug: string): Promise<SocialRow> {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+}
+
+function extractLinksFromObject(obj: any): string[] {
+  const links: string[] = [];
+  
+  if (typeof obj === 'string') {
+    // Check if the string is a URL
+    if (obj.startsWith('http') && !obj.toLowerCase().includes('zealy.io')) {
+      links.push(obj);
+    }
+  } else if (typeof obj === 'object' && obj !== null) {
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        links.push(...extractLinksFromObject(item));
+      }
+    } else {
+      for (const key in obj) {
+        links.push(...extractLinksFromObject(obj[key]));
+      }
+    }
+  }
+  
+  return links;
 }
 
 export const handler: Handler = async (event) => {
