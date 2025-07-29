@@ -78,4 +78,4 @@ The service will be available at `http://localhost:3000`
 
 ## Integration with Netlify
 
-Once deployed on Railway, update the Netlify function to call this service instead of trying to scrape directly. 
+Once deployed on Railway, update the Netlify function to call this service instead of trying to scrape directly. # Trigger Railway redeploy
