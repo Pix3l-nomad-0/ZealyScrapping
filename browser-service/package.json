@@ -4,7 +4,6 @@
   "description": "Browser service for Zealy social scraping",
   "main": "server.js",
   "scripts": {
-    "build": "echo 'Build completed'",
     "start": "node server.js",
     "dev": "node server.js"
   },
