@@ -19,7 +19,7 @@ export function normalizeSlug(line: string): string {
 }
 
 export function downloadCSV(rows: SocialRow[], filename: string = 'zealy-socials.csv'): void {
-  const headers = ['slug', 'website', 'discord', 'twitter', 'telegram', 'error'];
+  const headers = ['slug', 'website', 'twitter', 'discord', 'telegram', 'error'];
   const csvContent = [
     headers.join(','),
     ...rows.map(row => 
@@ -43,4 +43,25 @@ export function downloadCSV(rows: SocialRow[], filename: string = 'zealy-socials
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+export async function copyToClipboard(rows: SocialRow[]): Promise<boolean> {
+  try {
+    const headers = ['slug', 'website', 'twitter', 'discord', 'telegram', 'error'];
+    const csvContent = [
+      headers.join('\t'), // Use tabs for Google Sheets compatibility
+      ...rows.map(row => 
+        headers.map(header => {
+          const value = row[header as keyof SocialRow] || '';
+          return String(value);
+        }).join('\t')
+      )
+    ].join('\n');
+
+    await navigator.clipboard.writeText(csvContent);
+    return true;
+  } catch (error) {
+    console.error('Failed to copy to clipboard:', error);
+    return false;
+  }
 } 
