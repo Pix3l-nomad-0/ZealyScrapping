@@ -23,6 +23,108 @@ interface ScrapeResponse {
   rows: SocialRow[];
 }
 
+async function grabLinks(slug: string): Promise<SocialRow> {
+  const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
+  
+  try {
+    // Fetch the page HTML
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    
+    // Extract links using regex patterns
+    const linkPatterns = [
+      /href=["'](https?:\/\/[^"']+)["']/gi,
+      /href=["'](https?:\/\/[^"']+)["']/gi,
+    ];
+
+    const links: string[] = [];
+    
+    // Find all external links
+    for (const pattern of linkPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const link = match[1];
+        if (link && !link.toLowerCase().includes('zealy.io') && !links.includes(link)) {
+          links.push(link);
+        }
+      }
+    }
+
+    // Also look for social media patterns in the text
+    const socialPatterns = [
+      /(https?:\/\/discord\.(?:gg|com)\/[^\s"']+)/gi,
+      /(https?:\/\/(?:x\.com|twitter\.com)\/[^\s"']+)/gi,
+      /(https?:\/\/t\.me\/[^\s"']+)/gi,
+      /(https?:\/\/telegram\.me\/[^\s"']+)/gi,
+    ];
+
+    for (const pattern of socialPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const link = match[1];
+        if (link && !links.includes(link)) {
+          links.push(link);
+        }
+      }
+    }
+
+    // Classify links
+    const result: SocialRow = {
+      slug,
+      website: '',
+      discord: '',
+      twitter: '',
+      telegram: ''
+    };
+
+    for (const link of links) {
+      const lower = link.toLowerCase();
+      let matched = false;
+      
+      for (const [key, regex] of Object.entries(SOCIAL_MAP)) {
+        if (regex.test(lower)) {
+          if (!result[key as keyof SocialRow]) {
+            result[key as keyof SocialRow] = link;
+          }
+          matched = true;
+          break;
+        }
+      }
+      
+      if (!matched && !result.website) {
+        // treat as website if it isn't a known social
+        result.website = link;
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`Error scraping ${slug}:`, error);
+    return {
+      slug,
+      website: '',
+      discord: '',
+      twitter: '',
+      telegram: '',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
 export const handler: Handler = async (event) => {
   // Enable CORS
   const headers = {
@@ -71,16 +173,15 @@ export const handler: Handler = async (event) => {
 
     const rows: SocialRow[] = [];
     
-    // For now, return mock data to test if the function is working
+    // Process each slug with a small delay to be respectful
     for (const slug of slugs) {
-      rows.push({
-        slug,
-        website: `https://example.com/${slug}`,
-        discord: `https://discord.gg/${slug}`,
-        twitter: `https://twitter.com/${slug}`,
-        telegram: `https://t.me/${slug}`,
-        error: 'Mock data - playwright integration pending'
-      });
+      const row = await grabLinks(slug);
+      rows.push(row);
+      
+      // Add a small delay between requests
+      if (slugs.indexOf(slug) < slugs.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
 
     return {
