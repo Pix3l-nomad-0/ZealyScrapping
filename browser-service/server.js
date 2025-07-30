@@ -44,7 +44,7 @@ async function grabLinks(page, slug) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     
     // Wait a bit for the page to fully load
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
     
     // Try multiple strategies to find the dialog/modal
     let modal = null;
@@ -53,7 +53,7 @@ async function grabLinks(page, slug) {
     // Strategy 1: Wait for role="dialog" (original approach)
     try {
       console.log(`Strategy 1: Waiting for [role="dialog"]`);
-      await page.waitForSelector('[role="dialog"]', { timeout: 8000 });
+      await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
       modal = page.locator('[role="dialog"]');
       dialogFound = true;
       console.log(`✅ Dialog found with strategy 1`);
@@ -271,17 +271,33 @@ app.post('/scrape', async (req, res) => {
     try {
       // Process each slug
       for (const slug of slugs) {
-        const row = await grabLinks(page, slug);
-        rows.push(row);
+        try {
+          const row = await grabLinks(page, slug);
+          rows.push(row);
+        } catch (error) {
+          console.error(`Error processing slug ${slug}:`, error.message);
+          rows.push({
+            slug,
+            website: '',
+            discord: '',
+            twitter: '',
+            telegram: '',
+            error: error.message
+          });
+        }
         
         // Add a small delay between requests
         if (slugs.indexOf(slug) < slugs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
     } finally {
-      await browser.close();
-      console.log('Browser closed');
+      try {
+        await browser.close();
+        console.log('Browser closed');
+      } catch (error) {
+        console.log('Browser already closed or error closing:', error.message);
+      }
     }
 
     console.log(`Completed processing ${rows.length} slugs`);
