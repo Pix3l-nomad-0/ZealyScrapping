@@ -34,16 +34,16 @@ function slugFrom(line) {
   return line;
 }
 
-// Process a single slug with proper error handling
-async function processSlug(slug) {
-  console.log(`\n=== Processing ${slug} ===`);
+// Railway-optimized slug processing with timeout protection
+async function processSlugRailway(slug) {
+  console.log(`\n=== Processing ${slug} (Railway Optimized) ===`);
   
   let browser = null;
   let context = null;
   let page = null;
   
   try {
-    // Launch browser
+    // Launch browser with Railway-optimized settings
     console.log(`Launching browser for ${slug}...`);
     browser = await chromium.launch({ 
       headless: true,
@@ -55,7 +55,10 @@ async function processSlug(slug) {
         '--no-first-run',
         '--no-zygote',
         '--disable-gpu',
-        '--single-process'
+        '--single-process',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
       ]
     });
     
@@ -67,26 +70,26 @@ async function processSlug(slug) {
     console.log(`Navigating to: ${url}`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     
-    // Wait for dialog with multiple strategies
+    // Wait for dialog with Railway-optimized strategy
     let links = [];
     let dialogFound = false;
     
-    // Strategy 1: Wait for dialog with long timeout
+    // Strategy 1: Quick check for dialog
     try {
-      console.log('Strategy 1: Waiting for dialog (20s timeout)...');
-      await page.waitForSelector('[role="dialog"]', { timeout: 20000 });
+      console.log('Strategy 1: Quick dialog check (10s timeout)...');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
       dialogFound = true;
       console.log('✅ Dialog found with Strategy 1');
     } catch (error) {
       console.log(`❌ Strategy 1 failed: ${error.message}`);
     }
     
-    // Strategy 2: Wait longer and try again
+    // Strategy 2: Wait and retry (Railway-optimized timing)
     if (!dialogFound) {
       try {
-        console.log('Strategy 2: Waiting 5s then trying again (15s timeout)...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+        console.log('Strategy 2: Waiting 3s then retry (10s timeout)...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
         dialogFound = true;
         console.log('✅ Dialog found with Strategy 2');
       } catch (error) {
@@ -94,40 +97,43 @@ async function processSlug(slug) {
       }
     }
     
-    // Extract links if dialog found
+    // Extract links if dialog found (Railway-optimized)
     if (dialogFound) {
       try {
         console.log('Extracting links from dialog...');
         const modal = page.locator('[role="dialog"]');
         
-        // Try evaluateAll first
+        // Use evaluateAll with timeout protection
         try {
-          const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
-            els => els.map(e => e.href)
-          );
+          const hrefs = await Promise.race([
+            modal.locator('a[href^="http"]').evaluateAll(
+              els => els.map(e => e.href)
+            ),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('evaluateAll timeout')), 15000)
+            )
+          ]);
+          
           links = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
           console.log(`✅ Extracted ${links.length} links using evaluateAll`);
         } catch (evaluateError) {
           console.log(`❌ evaluateAll failed: ${evaluateError.message}`);
           
-          // Fallback: get links one by one
+          // Railway-optimized fallback: use evaluate instead of .all()
           try {
-            const linkElements = await modal.locator('a[href^="http"]').all();
-            console.log(`Found ${linkElements.length} link elements`);
+            console.log('Using Railway-optimized fallback method...');
+            const hrefs = await page.evaluate(() => {
+              const dialog = document.querySelector('[role="dialog"]');
+              if (!dialog) return [];
+              
+              const links = dialog.querySelectorAll('a[href^="http"]');
+              return Array.from(links).map(link => link.href);
+            });
             
-            for (const link of linkElements) {
-              try {
-                const href = await link.getAttribute('href');
-                if (href && !href.toLowerCase().includes('zealy.io')) {
-                  links.push(href);
-                }
-              } catch (linkError) {
-                console.log(`Error getting href: ${linkError.message}`);
-              }
-            }
-            console.log(`✅ Extracted ${links.length} links using fallback method`);
-          } catch (allError) {
-            console.log(`❌ Fallback method failed: ${allError.message}`);
+            links = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
+            console.log(`✅ Extracted ${links.length} links using Railway fallback`);
+          } catch (fallbackError) {
+            console.log(`❌ Railway fallback failed: ${fallbackError.message}`);
           }
         }
       } catch (dialogError) {
@@ -135,35 +141,21 @@ async function processSlug(slug) {
       }
     }
     
-    // Strategy 3: Look for social links anywhere on page
+    // Strategy 3: Railway-optimized social link search
     if (links.length === 0) {
       try {
-        console.log('Strategy 3: Looking for social links anywhere on page...');
-        const socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
-          els => els.map(e => e.href)
-        );
-        links = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
-        console.log(`✅ Found ${links.length} social links on page`);
-      } catch (evaluateError) {
-        console.log(`❌ evaluateAll for social links failed: ${evaluateError.message}`);
+        console.log('Strategy 3: Looking for social links (Railway optimized)...');
         
-        // Fallback for social links
-        try {
-          const socialElements = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').all();
-          for (const link of socialElements) {
-            try {
-              const href = await link.getAttribute('href');
-              if (href && !href.toLowerCase().includes('zealy.io')) {
-                links.push(href);
-              }
-            } catch (linkError) {
-              console.log(`Error getting social link href: ${linkError.message}`);
-            }
-          }
-          console.log(`✅ Found ${links.length} social links using fallback`);
-        } catch (allError) {
-          console.log(`❌ Social links fallback failed: ${allError.message}`);
-        }
+        // Use evaluate instead of locator.all() for better Railway compatibility
+        const socialLinks = await page.evaluate(() => {
+          const links = document.querySelectorAll('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]');
+          return Array.from(links).map(link => link.href);
+        });
+        
+        links = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
+        console.log(`✅ Found ${links.length} social links using Railway method`);
+      } catch (evaluateError) {
+        console.log(`❌ Railway social link search failed: ${evaluateError.message}`);
       }
     }
     
@@ -213,41 +205,45 @@ async function processSlug(slug) {
       error: error.message
     };
   } finally {
-    // Cleanup resources
+    // Railway-optimized cleanup
     console.log(`Cleaning up resources for ${slug}...`);
     
+    const cleanupPromises = [];
+    
     if (page) {
-      try {
-        await page.close();
-        console.log(`✅ Page closed for ${slug}`);
-      } catch (e) {
-        console.log(`❌ Error closing page for ${slug}:`, e.message);
-      }
+      cleanupPromises.push(
+        page.close().catch(e => console.log(`❌ Error closing page: ${e.message}`))
+      );
     }
     
     if (context) {
-      try {
-        await context.close();
-        console.log(`✅ Context closed for ${slug}`);
-      } catch (e) {
-        console.log(`❌ Error closing context for ${slug}:`, e.message);
-      }
+      cleanupPromises.push(
+        context.close().catch(e => console.log(`❌ Error closing context: ${e.message}`))
+      );
     }
     
     if (browser) {
-      try {
-        await browser.close();
-        console.log(`✅ Browser closed for ${slug}`);
-      } catch (e) {
-        console.log(`❌ Error closing browser for ${slug}:`, e.message);
-      }
+      cleanupPromises.push(
+        browser.close().catch(e => console.log(`❌ Error closing browser: ${e.message}`))
+      );
+    }
+    
+    // Wait for all cleanup operations with timeout
+    try {
+      await Promise.race([
+        Promise.all(cleanupPromises),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout')), 5000))
+      ]);
+      console.log(`✅ Cleanup completed for ${slug}`);
+    } catch (cleanupError) {
+      console.log(`⚠️ Cleanup timeout for ${slug}: ${cleanupError.message}`);
     }
     
     console.log(`=== Completed processing ${slug} ===\n`);
   }
 }
 
-// Main scraping endpoint
+// Main scraping endpoint with Railway optimizations
 app.post('/scrape', async (req, res) => {
   console.log('Received scrape request:', req.body);
   
@@ -267,16 +263,16 @@ app.post('/scrape', async (req, res) => {
     console.log(`Starting to process ${slugs.length} slugs`);
     const rows = [];
     
-    // Process each slug sequentially with proper error handling
+    // Process each slug with Railway optimizations
     for (const slug of slugs) {
       try {
-        const row = await processSlug(slug);
+        const row = await processSlugRailway(slug);
         rows.push(row);
         
-        // Add delay between requests
+        // Shorter delay for Railway
         if (slugs.indexOf(slug) < slugs.length - 1) {
-          console.log('Waiting 1 second before next request...');
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log('Waiting 500ms before next request...');
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       } catch (error) {
         console.error(`Failed to process ${slug}:`, error.message);
@@ -311,7 +307,7 @@ app.get('/health', (req, res) => {
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Zealy Browser Service is running',
+    message: 'Zealy Browser Service is running (Railway Optimized)',
     endpoints: {
       health: '/health',
       scrape: '/scrape (POST)'
@@ -320,9 +316,20 @@ app.get('/', (req, res) => {
   });
 });
 
+// Graceful shutdown handling for Railway
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.exit(0);
+});
+
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Browser service running on port ${PORT}`);
+  console.log(`🚀 Railway-optimized browser service running on port ${PORT}`);
   console.log(`📡 Available endpoints:`);
   console.log(`   GET  / - Service info`);
   console.log(`   GET  /health - Health check`);
