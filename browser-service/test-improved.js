@@ -2,19 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Add request logging
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
-
 // Social media regex patterns (exactly like Python code)
 const SOCIAL_MAP = {
   discord: /discord\.(gg|com)/i,
@@ -35,7 +22,7 @@ function slugFrom(line) {
   return line; // assume it's already a slug
 }
 
-// Grab links function (exactly like Python code)
+// Grab links function (improved version)
 async function grabLinks(page, slug) {
   const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
   
@@ -226,98 +213,47 @@ async function grabLinks(page, slug) {
   }
 }
 
-// Main scraping endpoint
-app.post('/scrape', async (req, res) => {
-  console.log('Received scrape request:', req.body);
+async function testImprovedScraping() {
+  console.log('🧪 Testing improved scraping logic...');
   
-  try {
-    const { slugs } = req.body;
-
-    if (!slugs || !Array.isArray(slugs) || slugs.length === 0) {
-      console.log('Invalid request: no slugs provided');
-      return res.status(400).json({ error: 'Invalid request: slugs array is required' });
-    }
-
-    // Limit the number of slugs to prevent abuse
-    if (slugs.length > 50) {
-      console.log('Too many slugs requested:', slugs.length);
-      return res.status(400).json({ error: 'Too many slugs. Maximum 50 allowed.' });
-    }
-
-    console.log(`Starting to process ${slugs.length} slugs`);
-    const rows = [];
-    
-    // Launch browser
-    console.log('Launching browser...');
-    const browser = await chromium.launch({ 
-      headless: true,
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ]
-    });
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 }
-    });
-    const page = await context.newPage();
-
-    try {
-      // Process each slug
-      for (const slug of slugs) {
-        const row = await grabLinks(page, slug);
-        rows.push(row);
-        
-        // Add a small delay between requests
-        if (slugs.indexOf(slug) < slugs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-    } finally {
-      await browser.close();
-      console.log('Browser closed');
-    }
-
-    console.log(`Completed processing ${rows.length} slugs`);
-    res.json({ rows });
-  } catch (error) {
-    console.error('Scraping error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message
-    });
-  }
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  console.log('Health check requested');
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-
-// Root endpoint for testing
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Zealy Browser Service is running',
-    endpoints: {
-      health: '/health',
-      scrape: '/scrape (POST)'
-    },
-    timestamp: new Date().toISOString()
+  const browser = await chromium.launch({ 
+    headless: true,
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu'
+    ]
   });
-});
+  
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 720 }
+  });
+  
+  const page = await context.newPage();
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Browser service running on port ${PORT}`);
-  console.log(`📡 Available endpoints:`);
-  console.log(`   GET  / - Service info`);
-  console.log(`   GET  /health - Health check`);
-  console.log(`   POST /scrape - Scrape social links`);
-}); 
+  try {
+    // Test the problematic slug
+    const result = await grabLinks(page, 'bestwallet');
+    console.log('📊 Result:', JSON.stringify(result, null, 2));
+    
+    if (result.error) {
+      console.log('❌ Test failed with error:', result.error);
+    } else {
+      console.log('✅ Test successful!');
+    }
+    
+  } catch (error) {
+    console.error('❌ Test error:', error);
+  } finally {
+    await browser.close();
+    console.log('🔒 Browser closed');
+  }
+}
+
+testImprovedScraping().catch(console.error); 
