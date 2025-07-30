@@ -15,146 +15,162 @@ app.use((req, res, next) => {
   next();
 });
 
-// Social media regex patterns (exactly like Python code)
+// Social media regex patterns
 const SOCIAL_MAP = {
   discord: /discord\.(gg|com)/i,
   twitter: /(x\.com|twitter\.com)/i,
   telegram: /(t\.me|telegram\.)/i,
 };
 
-// Extract slug from URL (exactly like Python code)
+// Extract slug from URL
 function slugFrom(line) {
   line = line.trim();
   if (!line) return "";
   if (line.startsWith("http")) {
-    // expected forms: https://zealy.io/cw/<slug>/...
     const url = new URL(line);
     const parts = url.pathname.split("/").filter(p => p);
     return parts.length >= 2 && parts[0] === "cw" ? parts[1] : "";
   }
-  return line; // assume it's already a slug
+  return line;
 }
 
-// Grab links function (exactly like Python code)
-async function grabLinks(page, slug) {
-  const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
+// Process a single slug with proper error handling
+async function processSlug(slug) {
+  console.log(`\n=== Processing ${slug} ===`);
+  
+  let browser = null;
+  let context = null;
+  let page = null;
   
   try {
-    console.log(`Processing slug: ${slug}`);
+    // Launch browser
+    console.log(`Launching browser for ${slug}...`);
+    browser = await chromium.launch({ 
+      headless: true,
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process'
+      ]
+    });
+    
+    context = await browser.newContext();
+    page = await context.newPage();
+    
+    // Navigate to the page
+    const url = `https://zealy.io/cw/${slug}/leaderboard?show-info=true`;
+    console.log(`Navigating to: ${url}`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     
-    // Wait for modal (dialog) to appear with increased timeout and better strategy
-    let modal = null;
+    // Wait for dialog with multiple strategies
     let links = [];
+    let dialogFound = false;
     
+    // Strategy 1: Wait for dialog with long timeout
     try {
-      // First try: wait for dialog with longer timeout
+      console.log('Strategy 1: Waiting for dialog (20s timeout)...');
       await page.waitForSelector('[role="dialog"]', { timeout: 20000 });
-      modal = page.locator('[role="dialog"]');
-      
-      // Collect all external links inside the dialog with error handling
-      let hrefs = [];
+      dialogFound = true;
+      console.log('✅ Dialog found with Strategy 1');
+    } catch (error) {
+      console.log(`❌ Strategy 1 failed: ${error.message}`);
+    }
+    
+    // Strategy 2: Wait longer and try again
+    if (!dialogFound) {
       try {
-        hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+        console.log('Strategy 2: Waiting 5s then trying again (15s timeout)...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
+        dialogFound = true;
+        console.log('✅ Dialog found with Strategy 2');
+      } catch (error) {
+        console.log(`❌ Strategy 2 failed: ${error.message}`);
+      }
+    }
+    
+    // Extract links if dialog found
+    if (dialogFound) {
+      try {
+        console.log('Extracting links from dialog...');
+        const modal = page.locator('[role="dialog"]');
+        
+        // Try evaluateAll first
+        try {
+          const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+            els => els.map(e => e.href)
+          );
+          links = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
+          console.log(`✅ Extracted ${links.length} links using evaluateAll`);
+        } catch (evaluateError) {
+          console.log(`❌ evaluateAll failed: ${evaluateError.message}`);
+          
+          // Fallback: get links one by one
+          try {
+            const linkElements = await modal.locator('a[href^="http"]').all();
+            console.log(`Found ${linkElements.length} link elements`);
+            
+            for (const link of linkElements) {
+              try {
+                const href = await link.getAttribute('href');
+                if (href && !href.toLowerCase().includes('zealy.io')) {
+                  links.push(href);
+                }
+              } catch (linkError) {
+                console.log(`Error getting href: ${linkError.message}`);
+              }
+            }
+            console.log(`✅ Extracted ${links.length} links using fallback method`);
+          } catch (allError) {
+            console.log(`❌ Fallback method failed: ${allError.message}`);
+          }
+        }
+      } catch (dialogError) {
+        console.log(`❌ Error extracting from dialog: ${dialogError.message}`);
+      }
+    }
+    
+    // Strategy 3: Look for social links anywhere on page
+    if (links.length === 0) {
+      try {
+        console.log('Strategy 3: Looking for social links anywhere on page...');
+        const socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
           els => els.map(e => e.href)
         );
+        links = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
+        console.log(`✅ Found ${links.length} social links on page`);
       } catch (evaluateError) {
-        console.log(`Error evaluating links for ${slug}, trying alternative method...`);
-        // Fallback: try to get links one by one
-        const linkElements = await modal.locator('a[href^="http"]').all();
-        hrefs = [];
-        for (const link of linkElements) {
-          try {
-            const href = await link.getAttribute('href');
-            if (href) hrefs.push(href);
-          } catch (linkError) {
-            console.log(`Error getting href for link:`, linkError.message);
-          }
-        }
-      }
-      
-      // Filter out zealy.io links
-      const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
-      
-      // Deduplicate keeping first occurrences
-      const seen = new Set();
-      for (const h of externalLinks) {
-        if (!seen.has(h)) {
-          links.push(h);
-          seen.add(h);
-        }
-      }
-      
-    } catch (dialogError) {
-      console.log(`Dialog not found for ${slug}, trying alternative approach...`);
-      
-      try {
-        // Fallback: try with a longer timeout instead of waitForTimeout
-        console.log('Trying fallback with longer timeout...');
-        await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
-        modal = page.locator('[role="dialog"]');
+        console.log(`❌ evaluateAll for social links failed: ${evaluateError.message}`);
         
-        let hrefs = [];
+        // Fallback for social links
         try {
-          hrefs = await modal.locator('a[href^="http"]').evaluateAll(
-            els => els.map(e => e.href)
-          );
-        } catch (evaluateError) {
-          console.log(`Error evaluating links in fallback for ${slug}, trying alternative method...`);
-          const linkElements = await modal.locator('a[href^="http"]').all();
-          hrefs = [];
-          for (const link of linkElements) {
-            try {
-              const href = await link.getAttribute('href');
-              if (href) hrefs.push(href);
-            } catch (linkError) {
-              console.log(`Error getting href for link:`, linkError.message);
-            }
-          }
-        }
-        
-        const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
-        const seen = new Set();
-        for (const h of externalLinks) {
-          if (!seen.has(h)) {
-            links.push(h);
-            seen.add(h);
-          }
-        }
-      } catch (fallbackError) {
-        console.log(`Fallback also failed for ${slug}, trying to find any social links on page...`);
-        
-        // Last resort: look for social links anywhere on the page
-        let socialLinks = [];
-        try {
-          socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
-            els => els.map(e => e.href)
-          );
-        } catch (evaluateError) {
-          console.log(`Error evaluating social links for ${slug}, trying alternative method...`);
           const socialElements = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').all();
-          socialLinks = [];
           for (const link of socialElements) {
             try {
               const href = await link.getAttribute('href');
-              if (href) socialLinks.push(href);
+              if (href && !href.toLowerCase().includes('zealy.io')) {
+                links.push(href);
+              }
             } catch (linkError) {
-              console.log(`Error getting href for social link:`, linkError.message);
+              console.log(`Error getting social link href: ${linkError.message}`);
             }
           }
-        }
-        
-        const externalLinks = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
-        const seen = new Set();
-        for (const h of externalLinks) {
-          if (!seen.has(h)) {
-            links.push(h);
-            seen.add(h);
-          }
+          console.log(`✅ Found ${links.length} social links using fallback`);
+        } catch (allError) {
+          console.log(`❌ Social links fallback failed: ${allError.message}`);
         }
       }
     }
-
+    
+    // Deduplicate links
+    const uniqueLinks = [...new Set(links)];
+    console.log(`Final unique links: ${uniqueLinks.length}`);
+    
     // Classify links
     const result = {
       slug,
@@ -164,7 +180,7 @@ async function grabLinks(page, slug) {
       telegram: ''
     };
 
-    for (const link of links) {
+    for (const link of uniqueLinks) {
       const lower = link.toLowerCase();
       let matched = false;
       
@@ -179,15 +195,15 @@ async function grabLinks(page, slug) {
       }
       
       if (!matched && !result.website) {
-        // treat as website if it isn't a known social
         result.website = link;
       }
     }
 
-    console.log(`Found ${links.length} links for ${slug}`);
+    console.log(`✅ Successfully processed ${slug}:`, result);
     return result;
+    
   } catch (error) {
-    console.error(`Error processing ${slug}:`, error.message);
+    console.error(`❌ Error processing ${slug}:`, error.message);
     return {
       slug,
       website: '',
@@ -196,6 +212,38 @@ async function grabLinks(page, slug) {
       telegram: '',
       error: error.message
     };
+  } finally {
+    // Cleanup resources
+    console.log(`Cleaning up resources for ${slug}...`);
+    
+    if (page) {
+      try {
+        await page.close();
+        console.log(`✅ Page closed for ${slug}`);
+      } catch (e) {
+        console.log(`❌ Error closing page for ${slug}:`, e.message);
+      }
+    }
+    
+    if (context) {
+      try {
+        await context.close();
+        console.log(`✅ Context closed for ${slug}`);
+      } catch (e) {
+        console.log(`❌ Error closing context for ${slug}:`, e.message);
+      }
+    }
+    
+    if (browser) {
+      try {
+        await browser.close();
+        console.log(`✅ Browser closed for ${slug}`);
+      } catch (e) {
+        console.log(`❌ Error closing browser for ${slug}:`, e.message);
+      }
+    }
+    
+    console.log(`=== Completed processing ${slug} ===\n`);
   }
 }
 
@@ -211,7 +259,6 @@ app.post('/scrape', async (req, res) => {
       return res.status(400).json({ error: 'Invalid request: slugs array is required' });
     }
 
-    // Limit the number of slugs to prevent abuse
     if (slugs.length > 50) {
       console.log('Too many slugs requested:', slugs.length);
       return res.status(400).json({ error: 'Too many slugs. Maximum 50 allowed.' });
@@ -220,78 +267,27 @@ app.post('/scrape', async (req, res) => {
     console.log(`Starting to process ${slugs.length} slugs`);
     const rows = [];
     
-    // Process each slug with individual browser instances to prevent crashes
+    // Process each slug sequentially with proper error handling
     for (const slug of slugs) {
-      let browser = null;
-      let context = null;
-      let page = null;
-      let row = null;
-      
       try {
-        // Launch a fresh browser for each slug to prevent memory issues
-        console.log(`Launching browser for ${slug}...`);
-        browser = await chromium.launch({ 
-          headless: true,
-          args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--single-process'
-          ]
-        });
-        context = await browser.newContext();
-        page = await context.newPage();
-
-        row = await grabLinks(page, slug);
+        const row = await processSlug(slug);
+        rows.push(row);
         
+        // Add delay between requests
+        if (slugs.indexOf(slug) < slugs.length - 1) {
+          console.log('Waiting 1 second before next request...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       } catch (error) {
-        console.error(`Error processing ${slug}:`, error.message);
-        row = {
+        console.error(`Failed to process ${slug}:`, error.message);
+        rows.push({
           slug,
           website: '',
           discord: '',
           twitter: '',
           telegram: '',
           error: error.message
-        };
-      } finally {
-        // Always close browser to free memory
-        if (page) {
-          try {
-            await page.close();
-          } catch (e) {
-            console.log(`Error closing page for ${slug}:`, e.message);
-          }
-        }
-        if (context) {
-          try {
-            await context.close();
-          } catch (e) {
-            console.log(`Error closing context for ${slug}:`, e.message);
-          }
-        }
-        if (browser) {
-          try {
-            await browser.close();
-            console.log(`Browser closed for ${slug}`);
-          } catch (e) {
-            console.log(`Error closing browser for ${slug}:`, e.message);
-          }
-        }
-      }
-      
-      // Add the row to results after browser is closed
-      if (row) {
-        rows.push(row);
-      }
-      
-      // Add a small delay between requests
-      if (slugs.indexOf(slug) < slugs.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        });
       }
     }
 
@@ -312,7 +308,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Root endpoint for testing
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
     message: 'Zealy Browser Service is running',
