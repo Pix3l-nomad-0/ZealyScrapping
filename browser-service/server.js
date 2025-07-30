@@ -52,10 +52,26 @@ async function grabLinks(page, slug) {
       await page.waitForSelector('[role="dialog"]', { timeout: 20000 });
       modal = page.locator('[role="dialog"]');
       
-      // Collect all external links inside the dialog
-      const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
-        els => els.map(e => e.href)
-      );
+      // Collect all external links inside the dialog with error handling
+      let hrefs = [];
+      try {
+        hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+          els => els.map(e => e.href)
+        );
+      } catch (evaluateError) {
+        console.log(`Error evaluating links for ${slug}, trying alternative method...`);
+        // Fallback: try to get links one by one
+        const linkElements = await modal.locator('a[href^="http"]').all();
+        hrefs = [];
+        for (const link of linkElements) {
+          try {
+            const href = await link.getAttribute('href');
+            if (href) hrefs.push(href);
+          } catch (linkError) {
+            console.log(`Error getting href for link:`, linkError.message);
+          }
+        }
+      }
       
       // Filter out zealy.io links
       const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
@@ -79,9 +95,24 @@ async function grabLinks(page, slug) {
         await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
         modal = page.locator('[role="dialog"]');
         
-        const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
-          els => els.map(e => e.href)
-        );
+        let hrefs = [];
+        try {
+          hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+            els => els.map(e => e.href)
+          );
+        } catch (evaluateError) {
+          console.log(`Error evaluating links in fallback for ${slug}, trying alternative method...`);
+          const linkElements = await modal.locator('a[href^="http"]').all();
+          hrefs = [];
+          for (const link of linkElements) {
+            try {
+              const href = await link.getAttribute('href');
+              if (href) hrefs.push(href);
+            } catch (linkError) {
+              console.log(`Error getting href for link:`, linkError.message);
+            }
+          }
+        }
         
         const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
         const seen = new Set();
@@ -95,9 +126,24 @@ async function grabLinks(page, slug) {
         console.log(`Fallback also failed for ${slug}, trying to find any social links on page...`);
         
         // Last resort: look for social links anywhere on the page
-        const socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
-          els => els.map(e => e.href)
-        );
+        let socialLinks = [];
+        try {
+          socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
+            els => els.map(e => e.href)
+          );
+        } catch (evaluateError) {
+          console.log(`Error evaluating social links for ${slug}, trying alternative method...`);
+          const socialElements = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').all();
+          socialLinks = [];
+          for (const link of socialElements) {
+            try {
+              const href = await link.getAttribute('href');
+              if (href) socialLinks.push(href);
+            } catch (linkError) {
+              console.log(`Error getting href for social link:`, linkError.message);
+            }
+          }
+        }
         
         const externalLinks = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
         const seen = new Set();
@@ -175,29 +221,74 @@ app.post('/scrape', async (req, res) => {
     console.log(`Starting to process ${slugs.length} slugs`);
     const rows = [];
     
-    // Launch browser
-    console.log('Launching browser...');
-    const browser = await chromium.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    // Process each slug with individual browser instances to prevent crashes
+    for (const slug of slugs) {
+      let browser = null;
+      let context = null;
+      let page = null;
+      
+      try {
+        // Launch a fresh browser for each slug to prevent memory issues
+        console.log(`Launching browser for ${slug}...`);
+        browser = await chromium.launch({ 
+          headless: true,
+          args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--single-process'
+          ]
+        });
+        context = await browser.newContext();
+        page = await context.newPage();
 
-    try {
-      // Process each slug
-      for (const slug of slugs) {
         const row = await grabLinks(page, slug);
         rows.push(row);
         
+      } catch (error) {
+        console.error(`Error processing ${slug}:`, error.message);
+        rows.push({
+          slug,
+          website: '',
+          discord: '',
+          twitter: '',
+          telegram: '',
+          error: error.message
+        });
+      } finally {
+        // Always close browser to free memory
+        if (page) {
+          try {
+            await page.close();
+          } catch (e) {
+            console.log(`Error closing page for ${slug}:`, e.message);
+          }
+        }
+        if (context) {
+          try {
+            await context.close();
+          } catch (e) {
+            console.log(`Error closing context for ${slug}:`, e.message);
+          }
+        }
+        if (browser) {
+          try {
+            await browser.close();
+            console.log(`Browser closed for ${slug}`);
+          } catch (e) {
+            console.log(`Error closing browser for ${slug}:`, e.message);
+          }
+        }
+        
         // Add a small delay between requests
         if (slugs.indexOf(slug) < slugs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-    } finally {
-      await browser.close();
-      console.log('Browser closed');
     }
 
     console.log(`Completed processing ${rows.length} slugs`);
