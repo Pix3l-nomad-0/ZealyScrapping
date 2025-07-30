@@ -88,11 +88,10 @@ async function grabLinks(page, slug) {
     } catch (dialogError) {
       console.log(`Dialog not found for ${slug}, trying alternative approach...`);
       
-      // Fallback: wait a bit more and try again
-      await page.waitForTimeout(3000);
-      
       try {
-        await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
+        // Fallback: try with a longer timeout instead of waitForTimeout
+        console.log('Trying fallback with longer timeout...');
+        await page.waitForSelector('[role="dialog"]', { timeout: 15000 });
         modal = page.locator('[role="dialog"]');
         
         let hrefs = [];
@@ -226,6 +225,7 @@ app.post('/scrape', async (req, res) => {
       let browser = null;
       let context = null;
       let page = null;
+      let row = null;
       
       try {
         // Launch a fresh browser for each slug to prevent memory issues
@@ -246,19 +246,18 @@ app.post('/scrape', async (req, res) => {
         context = await browser.newContext();
         page = await context.newPage();
 
-        const row = await grabLinks(page, slug);
-        rows.push(row);
+        row = await grabLinks(page, slug);
         
       } catch (error) {
         console.error(`Error processing ${slug}:`, error.message);
-        rows.push({
+        row = {
           slug,
           website: '',
           discord: '',
           twitter: '',
           telegram: '',
           error: error.message
-        });
+        };
       } finally {
         // Always close browser to free memory
         if (page) {
@@ -283,11 +282,16 @@ app.post('/scrape', async (req, res) => {
             console.log(`Error closing browser for ${slug}:`, e.message);
           }
         }
-        
-        // Add a small delay between requests
-        if (slugs.indexOf(slug) < slugs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+      }
+      
+      // Add the row to results after browser is closed
+      if (row) {
+        rows.push(row);
+      }
+      
+      // Add a small delay between requests
+      if (slugs.indexOf(slug) < slugs.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
