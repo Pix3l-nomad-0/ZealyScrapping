@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "postinstall": "npx playwright install chromium"
+    "build": "echo 'No build step required'",
+    "postinstall": "npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -15,5 +16,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "cacheDirectories": [
+    "node_modules",
+    ".cache"
+  ]
 } 

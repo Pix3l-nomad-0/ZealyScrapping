@@ -24,16 +24,16 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first (for better caching)
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (this layer will be cached if package.json doesn't change)
+RUN npm ci --only=production
 
-# Install Playwright browsers
-RUN npx playwright install chromium
+# Install Playwright browsers (this layer will be cached)
+RUN npx playwright install chromium --with-deps
 
-# Copy application code
+# Copy application code (this layer changes with code changes)
 COPY . .
 
 # Expose port
