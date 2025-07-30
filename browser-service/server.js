@@ -43,25 +43,70 @@ async function grabLinks(page, slug) {
     console.log(`Processing slug: ${slug}`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     
-    // Wait for modal (dialog) to appear
-    await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
-    const modal = page.locator('[role="dialog"]');
-
-    // Collect all external links inside the dialog
-    const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
-      els => els.map(e => e.href)
-    );
+    // Wait for modal (dialog) to appear with increased timeout and better strategy
+    let modal = null;
+    let links = [];
     
-    // Filter out zealy.io links
-    const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
-
-    // Deduplicate keeping first occurrences
-    const seen = new Set();
-    const links = [];
-    for (const h of externalLinks) {
-      if (!seen.has(h)) {
-        links.push(h);
-        seen.add(h);
+    try {
+      // First try: wait for dialog with longer timeout
+      await page.waitForSelector('[role="dialog"]', { timeout: 20000 });
+      modal = page.locator('[role="dialog"]');
+      
+      // Collect all external links inside the dialog
+      const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+        els => els.map(e => e.href)
+      );
+      
+      // Filter out zealy.io links
+      const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
+      
+      // Deduplicate keeping first occurrences
+      const seen = new Set();
+      for (const h of externalLinks) {
+        if (!seen.has(h)) {
+          links.push(h);
+          seen.add(h);
+        }
+      }
+      
+    } catch (dialogError) {
+      console.log(`Dialog not found for ${slug}, trying alternative approach...`);
+      
+      // Fallback: wait a bit more and try again
+      await page.waitForTimeout(3000);
+      
+      try {
+        await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
+        modal = page.locator('[role="dialog"]');
+        
+        const hrefs = await modal.locator('a[href^="http"]').evaluateAll(
+          els => els.map(e => e.href)
+        );
+        
+        const externalLinks = hrefs.filter(h => !h.toLowerCase().includes('zealy.io'));
+        const seen = new Set();
+        for (const h of externalLinks) {
+          if (!seen.has(h)) {
+            links.push(h);
+            seen.add(h);
+          }
+        }
+      } catch (fallbackError) {
+        console.log(`Fallback also failed for ${slug}, trying to find any social links on page...`);
+        
+        // Last resort: look for social links anywhere on the page
+        const socialLinks = await page.locator('a[href*="twitter"], a[href*="discord"], a[href*="telegram"], a[href*="t.me"], a[href*="x.com"]').evaluateAll(
+          els => els.map(e => e.href)
+        );
+        
+        const externalLinks = socialLinks.filter(h => !h.toLowerCase().includes('zealy.io'));
+        const seen = new Set();
+        for (const h of externalLinks) {
+          if (!seen.has(h)) {
+            links.push(h);
+            seen.add(h);
+          }
+        }
       }
     }
 
